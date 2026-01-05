@@ -1,0 +1,262 @@
+name: Lab 3 - Component Testing CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  grading-checks:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check required files exist
+        id: files
+        run: |
+          echo "## 📁 File Check" >> $GITHUB_STEP_SUMMARY
+          
+          MISSING_FILES=""
+          REQUIRED_FILES=(
+            "src/components/TaskItem.tsx"
+            "src/components/AddTaskForm.tsx"
+            "src/components/TaskList.tsx"
+            "src/api/taskApi.ts"
+            "src/__tests__/TaskItem.test.tsx"
+            "src/__tests__/AddTaskForm.test.tsx"
+            "src/__tests__/TaskList.test.tsx"
+            "src/__tests__/taskApi.test.ts"
+            "src/setupTests.ts"
+            "vitest.config.ts"
+            "tsconfig.json"
+            "README.md"
+          )
+          
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✅ $file" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ $file (MISSING)" >> $GITHUB_STEP_SUMMARY
+              MISSING_FILES="$MISSING_FILES $file"
+            fi
+          done
+          
+          if [ -n "$MISSING_FILES" ]; then
+            echo "files_missing=true" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Some required files are missing!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "files_missing=false" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **All required files present!**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check test count
+        id: test_count
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🧪 Test Count" >> $GITHUB_STEP_SUMMARY
+          
+          # Run tests and capture output
+          TEST_OUTPUT=$(npm run test:run -- --reporter=json 2>/dev/null || true)
+          
+          # Count tests by looking at test results
+          TEST_COUNT=$(npm run test:run -- --reporter=verbose 2>&1 | grep -c "✓\|✔\|PASS" || echo "0")
+          
+          # Alternative: count test files and estimate
+          TEST_FILE_COUNT=$(find src/__tests__ -name "*.test.ts*" | wc -l)
+          
+          # Run vitest with json reporter and parse
+          npm run test:run -- --reporter=json --outputFile=test-results.json 2>/dev/null || true
+          
+          if [ -f test-results.json ]; then
+            TOTAL_TESTS=$(cat test-results.json | grep -o '"numTotalTests":[0-9]*' | grep -o '[0-9]*' || echo "0")
+            PASSED_TESTS=$(cat test-results.json | grep -o '"numPassedTests":[0-9]*' | grep -o '[0-9]*' || echo "0")
+          else
+            # Fallback: run tests and count
+            TOTAL_TESTS=$(npm run test:run 2>&1 | grep -oP '\d+(?= tests?)' | tail -1 || echo "0")
+            PASSED_TESTS=$TOTAL_TESTS
+          fi
+          
+          echo "Total tests found: $TOTAL_TESTS" >> $GITHUB_STEP_SUMMARY
+          echo "Passed tests: $PASSED_TESTS" >> $GITHUB_STEP_SUMMARY
+          
+          MIN_TESTS=25
+          
+          if [ "$TOTAL_TESTS" -ge "$MIN_TESTS" ]; then
+            echo "✅ **Test count meets minimum ($TOTAL_TESTS >= $MIN_TESTS)**" >> $GITHUB_STEP_SUMMARY
+            echo "test_count_met=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ **Test count below minimum ($TOTAL_TESTS < $MIN_TESTS)**" >> $GITHUB_STEP_SUMMARY
+            echo "test_count_met=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check coverage threshold
+        id: coverage
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Code Coverage" >> $GITHUB_STEP_SUMMARY
+          
+          # Run coverage and check threshold
+          npm run test:coverage 2>&1 | tee coverage-output.txt || true
+          
+          # Extract coverage percentages
+          STATEMENTS=$(grep -oP 'Statements\s*:\s*\K[\d.]+' coverage-output.txt || echo "0")
+          BRANCHES=$(grep -oP 'Branches\s*:\s*\K[\d.]+' coverage-output.txt || echo "0")
+          FUNCTIONS=$(grep -oP 'Functions\s*:\s*\K[\d.]+' coverage-output.txt || echo "0")
+          LINES=$(grep -oP 'Lines\s*:\s*\K[\d.]+' coverage-output.txt || echo "0")
+          
+          echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Statements | ${STATEMENTS}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branches | ${BRANCHES}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Functions | ${FUNCTIONS}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lines | ${LINES}% |" >> $GITHUB_STEP_SUMMARY
+          
+          THRESHOLD=90
+          
+          # Check if any metric is below threshold (using bc for floating point comparison)
+          BELOW_THRESHOLD=false
+          for coverage in $STATEMENTS $BRANCHES $FUNCTIONS $LINES; do
+            if [ $(echo "$coverage < $THRESHOLD" | bc -l) -eq 1 ]; then
+              BELOW_THRESHOLD=true
+            fi
+          done
+          
+          if [ "$BELOW_THRESHOLD" = "false" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **All coverage metrics meet ${THRESHOLD}% threshold**" >> $GITHUB_STEP_SUMMARY
+            echo "coverage_met=true" >> $GITHUB_OUTPUT
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Some coverage metrics below ${THRESHOLD}% threshold**" >> $GITHUB_STEP_SUMMARY
+            echo "coverage_met=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check README content
+        id: readme
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 README Check" >> $GITHUB_STEP_SUMMARY
+          
+          README_ISSUES=""
+          
+          # Check for reflection section
+          if grep -qi "reflection" README.md; then
+            echo "✅ Reflection section found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Missing reflection section" >> $GITHUB_STEP_SUMMARY
+            README_ISSUES="$README_ISSUES reflection"
+          fi
+          
+          # Check for key concepts section
+          if grep -qi "key concepts\|concepts learned\|what i learned" README.md; then
+            echo "✅ Key concepts section found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Missing key concepts section" >> $GITHUB_STEP_SUMMARY
+            README_ISSUES="$README_ISSUES concepts"
+          fi
+          
+          # Check word count (rough estimate)
+          WORD_COUNT=$(wc -w < README.md)
+          if [ "$WORD_COUNT" -ge 200 ]; then
+            echo "✅ README has sufficient content ($WORD_COUNT words)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ README may be too short ($WORD_COUNT words, aim for 200+)" >> $GITHUB_STEP_SUMMARY
+            README_ISSUES="$README_ISSUES length"
+          fi
+          
+          # Check for student name
+          if grep -qi "name:\|author:\|by:" README.md; then
+            echo "✅ Student name appears to be present" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Student name may be missing" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -z "$README_ISSUES" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **README meets requirements**" >> $GITHUB_STEP_SUMMARY
+            echo "readme_complete=true" >> $GITHUB_OUTPUT
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **README may need improvement**" >> $GITHUB_STEP_SUMMARY
+            echo "readme_complete=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate grading summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Grading Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Criteria | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.files.outputs.files_missing }}" = "false" ]; then
+            echo "| Required Files | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Required Files | ❌ Missing files |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.test_count.outputs.test_count_met }}" = "true" ]; then
+            echo "| Minimum Tests (25) | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Minimum Tests (25) | ❌ Below minimum |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.coverage.outputs.coverage_met }}" = "true" ]; then
+            echo "| Coverage (90%) | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Coverage (90%) | ⚠️ Below threshold |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.readme.outputs.readme_complete }}" = "true" ]; then
+            echo "| README Complete | ✅ Pass |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| README Complete | ⚠️ Needs review |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "*Note: This is an automated check. Manual review will also be performed.*" >> $GITHUB_STEP_SUMMARY
