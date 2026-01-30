@@ -351,6 +351,8 @@ describe('TaskItem', () => {
 
 🤔 **Reflection Question:** Notice how we're using `getByRole` with accessible names like `name: /delete "task to delete"/i`. How does this approach differ from using `getByTestId('delete-button')`? Which approach better reflects how users interact with the UI? (Hint: Consider Kent C. Dodds' guiding principle from your readings.)
 
+**Answer:** Using `getByRole` better reflects how users interact with the UI, since it represents the *actual action taken* by a user instead of the mid-level implementation of the specific feature in the codebase itself. Since the latter method focuses more on the actual ID of the item, it could ignore details of the way the action being tested is utilized by the end-user, with tests more similar to the end user's actions creating more Confidence for the tester.
+
 ---
 
 ## Part 3: Testing Forms with User Events (25 minutes)
@@ -567,6 +569,8 @@ describe('AddTaskForm', () => {
 ✅ **Checkpoint:** Run `npm test` — all tests should pass (15+ tests now).
 
 🤔 **Reflection Question:** We used `queryByRole('alert')` instead of `getByRole('alert')` when checking that an error message does NOT exist. Why? What would happen if we used `getByRole` for an element that doesn't exist?
+
+**Answer:** We use `queryByRole('alert')` because this will return a `null` in the event of 0 matches being found. `getByRole`, by comparison, raises an error when no matches are found- since we're looking for that "0 matches" result, crashing the program when it occurs would be counterproductive.
 
 ---
 
