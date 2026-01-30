@@ -1,3 +1,57 @@
+NAME:
+  #### Gin JW Harris
+
+ADDED TESTS:
+  ```typescript
+  describe('invalid task creation check', () => {
+    it( 'throws error after failing to create task', async() => {
+      const user = userEvent.setup(); // Setup user for UI interactions
+
+      mockedTaskApi.fetchTasks.mockResolvedValue([]); // Make the empty tasks list
+
+      render(<TaskList />); // Render
+
+      await screen.findByText(/no tasks yet/i); // Wait for loading to complete
+
+      mockedTaskApi.createTask.mockRejectedValue(new Error('Failed to create task')); // Setup a failure for createTask
+      await user.type(screen.getByLabelText(/task title/i), 'wef'); // Add name for new task (it'll throw up a different error otherwise)
+      await user.click(screen.getByRole('button', { name: /add task/i })); // Click "add task"
+
+      render(<TaskList />); // Render
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/failed to add/i); // Error should be found here
+
+      expect(await screen.queryByText('wef')).not.toBeInTheDocument(); // There should also be no tasks still
+        
+   });
+  });
+  ```
+  
+  ```typescript
+  describe('invalid task creation check', () => {
+    it( 'throws error after failing to create task', async() => {
+      const user = userEvent.setup(); // Setup user for UI interactions
+
+      mockedTaskApi.fetchTasks.mockResolvedValue([]); // Make the empty tasks list
+
+      render(<TaskList />); // Render
+
+      await screen.findByText(/no tasks yet/i); // Wait for loading to complete
+
+      mockedTaskApi.createTask.mockRejectedValue(new Error('Failed to create task')); // Setup a failure for createTask
+      await user.type(screen.getByLabelText(/task title/i), 'wef'); // Add name for new task (it'll throw up a different error otherwise)
+      await user.click(screen.getByRole('button', { name: /add task/i })); // Click "add task"
+
+      render(<TaskList />); // Render
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/failed to add/i); // Error should be found here
+
+      expect(await screen.queryByText('wef')).not.toBeInTheDocument(); // There should also be no tasks still
+        
+   });
+  });
+  ```
+
 [![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/OFlm_OiO)
 # Lab 3: Testing React Components
 
